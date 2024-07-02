@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>阿琳焦虑缓解系统</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+        }
+        input[type="text"] {
+            width: 70%;
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        #result {
+            margin-top: 20px;
+            font-size: 16px;
+        }
+        .section {
+            margin-bottom: 20px;
+        }
+        .section-title {
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        .subsection-title {
+            font-weight: bold;
+            color: #34495e;
+            margin-top: 10px;
+            margin-bottom: 5px;
+        }
+        ul, ol {
+            margin-top: 5px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>阿琳焦虑缓解系统</h1>
+        <input type="text" id="question" placeholder="你想知道的问题名字，例：气管炎" />
+        <button onclick="askQuestion()">搜索</button>
+        <div id="result"></div>
+    </div>
+
+    <script>
+        function askQuestion() {
+            const question = document.getElementById('question').value;
+            const resultDiv = document.getElementById('result');
+            
+            resultDiv.innerHTML = '<p>正在查询...</p>';
+
+            const options = {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer 00dea5bb4f3b4da59dc87d2a5c71437a',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    "user_id": "JK72P3Qyv4aSuhJVSNgB3TIKzfB3",
+                    "saved_item_id": "ahcjdJiySVfJ66mX34rwTK",
+                    "pipeline_inputs": [{"input_name":"input","value": question}]
+                })
+            };
+
+            fetch('https://api.gumloop.com/api/v1/start_pipeline', options)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.run_id) {
+                        pollForResults(data.run_id);
+                    } else {
+                        resultDiv.innerHTML = '<p>无法获取结果，请稍后再试。</p>';
+                    }
+                })
+                .catch(err => {
+                    resultDiv.innerHTML = '<p>查询出错: ' + err.message + '</p>';
+                });
+        }
+
+        function pollForResults(runId) {
+            const resultDiv = document.getElementById('result');
+            const pollOptions = {
+                method: 'GET',
+                headers: {
+                    'Authorization': 'Bearer 00dea5bb4f3b4da59dc87d2a5c71437a'
+                }
+            };
+
+            const pollInterval = setInterval(() => {
+                fetch(`https://api.gumloop.com/api/v1/get_pl_run?run_id=${runId}&user_id=JK72P3Qyv4aSuhJVSNgB3TIKzfB3`, pollOptions)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.state === 'DONE') {
+                            clearInterval(pollInterval);
+                            if (data.outputs && data.outputs.output) {
+                                const parsedReport = parseMedicalReport(data.outputs.output);
+                                displayFormattedResult(parsedReport);
+                            } else {
+                                resultDiv.innerHTML = '<p>无法获取结果，请稍后再试。</p>';
+                            }
+                        } else if (data.state === 'FAILED' || data.state === 'TERMINATED') {
+                            clearInterval(pollInterval);
+                            resultDiv.innerHTML = '<p>查询失败，请稍后再试。</p>';
+                        }
+                    })
+                    .catch(err => {
+                        clearInterval(pollInterval);
+                        resultDiv.innerHTML = '<p>查询出错: ' + err.message + '</p>';
+                    });
+            }, 5000); // Poll every 5 seconds
+        }
+
+        function parseMedicalReport(input) {
+            const lines = input.split('\n').map(line => line.trim()).filter(line => line);
+            const result = { title: '', sections: [], conclusion: '' };
+            let currentSection = null;
+            let currentContent = null;
+
+            lines.forEach(line => {
+                if (line.startsWith('###')) {
+                    if (currentSection) {
+                        result.sections.push(currentSection);
+                    }
+                    currentSection = { title: line.replace(/###\s*/, ''), content: [] };
+                } else if (line.startsWith('####')) {
+                    if (currentContent) {
+                        currentSection.content.push(currentContent);
+                    }
+                    currentContent = { type: 'section', title: line.replace(/####\s*/, ''), items: [] };
+                } else if (line.startsWith('- ')) {
+                    const item = line.replace(/- /, '');
+                    currentContent.items.push(item);
+                } else if (line.startsWith('1. ') || line.startsWith('2. ')) {
+                    const item = { name: '', description: '', details: [] };
+                    const parts = line.split(' - ');
+                    item.name = parts[0].replace(/\d\. /, '');
+                    item.description = parts[1];
+                    currentContent.items.push(item);
+                }
+            });
+
+            if (currentContent) {
+                currentSection.content.push(currentContent);
+            }
+            if (currentSection) {
+                result.sections.push(currentSection);
+            }
+            result.conclusion = lines[lines.length - 1];
+
+            return result;
+        }
+
+        function displayFormattedResult(parsedReport) {
+            const resultDiv = document.getElementById('result');
+            let html = '';
+
+            parsedReport.sections.forEach(section => {
+                html += `<div class="section">`;
+                html += `<h2 class="section-title">${section.title}</h2>`;
+                
+                section.content.forEach(content => {
+                    html += `<h3 class="subsection-title">${content.title}</h3>`;
+                    if (content.items[0] && typeof content.items[0] === 'string') {
+                        html += '<ul>';
+                        content.items.forEach(item => {
+                            html += `<li>${item}</li>`;
+                        });
+                        html += '</ul>';
+                    } else {
+                        html += '<ol>';
+                        content.items.forEach(item => {
+                            html += `<li><strong>${item.name}</strong> - ${item.description}</li>`;
+                        });
+                        html += '</ol>';
+                    }
+                });
+
+                html += `</div>`;
+            });
+
+            html += `<p><strong>结论：</strong>${parsedReport.conclusion}</p>`;
+
+            resultDiv.innerHTML = html;
+        }
+    </script>
+</body>
+</html>
