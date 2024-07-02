@@ -43,31 +43,20 @@
         #result {
             margin-top: 20px;
             font-size: 16px;
-        }
-        .section {
-            margin-bottom: 20px;
-        }
-        .section-title {
-            font-weight: bold;
-            color: #2c3e50;
-            margin-bottom: 10px;
-        }
-        .subsection-title {
-            font-weight: bold;
-            color: #34495e;
-            margin-top: 10px;
-            margin-bottom: 5px;
-        }
-        ul, ol {
-            margin-top: 5px;
-            margin-bottom: 10px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            background-color: #f9f9f9;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>阿琳焦虑缓解系统</h1>
-        <input type="text" id="question" placeholder="你想知道的问题名字，例：气管炎" />
+        <input type="text" id="question" placeholder="你想知道的问题名字，例：湿疹" />
         <button onclick="askQuestion()">搜索</button>
         <div id="result"></div>
     </div>
@@ -95,6 +84,7 @@
             fetch('https://api.gumloop.com/api/v1/start_pipeline', options)
                 .then(response => response.json())
                 .then(data => {
+                    console.log('Initial API Response:', data);
                     if (data.run_id) {
                         pollForResults(data.run_id);
                     } else {
@@ -103,6 +93,7 @@
                 })
                 .catch(err => {
                     resultDiv.innerHTML = '<p>查询出错: ' + err.message + '</p>';
+                    console.error('Error:', err);
                 });
         }
 
@@ -119,97 +110,33 @@
                 fetch(`https://api.gumloop.com/api/v1/get_pl_run?run_id=${runId}&user_id=JK72P3Qyv4aSuhJVSNgB3TIKzfB3`, pollOptions)
                     .then(response => response.json())
                     .then(data => {
+                        console.log('Poll API Response:', data);
                         if (data.state === 'DONE') {
                             clearInterval(pollInterval);
                             if (data.outputs && data.outputs.output) {
-                                const parsedReport = parseMedicalReport(data.outputs.output);
-                                displayFormattedResult(parsedReport);
+                                console.log('Output to display:', data.outputs.output);
+                                displayFormattedResult(data.outputs.output);
                             } else {
                                 resultDiv.innerHTML = '<p>无法获取结果，请稍后再试。</p>';
                             }
                         } else if (data.state === 'FAILED' || data.state === 'TERMINATED') {
                             clearInterval(pollInterval);
                             resultDiv.innerHTML = '<p>查询失败，请稍后再试。</p>';
+                        } else {
+                            resultDiv.innerHTML = `<p>正在处理... 状态: ${data.state}</p>`;
                         }
                     })
                     .catch(err => {
                         clearInterval(pollInterval);
                         resultDiv.innerHTML = '<p>查询出错: ' + err.message + '</p>';
+                        console.error('Error:', err);
                     });
             }, 5000); // Poll every 5 seconds
         }
 
-        function parseMedicalReport(input) {
-            const lines = input.split('\n').map(line => line.trim()).filter(line => line);
-            const result = { title: '', sections: [], conclusion: '' };
-            let currentSection = null;
-            let currentContent = null;
-
-            lines.forEach(line => {
-                if (line.startsWith('###')) {
-                    if (currentSection) {
-                        result.sections.push(currentSection);
-                    }
-                    currentSection = { title: line.replace(/###\s*/, ''), content: [] };
-                } else if (line.startsWith('####')) {
-                    if (currentContent) {
-                        currentSection.content.push(currentContent);
-                    }
-                    currentContent = { type: 'section', title: line.replace(/####\s*/, ''), items: [] };
-                } else if (line.startsWith('- ')) {
-                    const item = line.replace(/- /, '');
-                    currentContent.items.push(item);
-                } else if (line.startsWith('1. ') || line.startsWith('2. ')) {
-                    const item = { name: '', description: '', details: [] };
-                    const parts = line.split(' - ');
-                    item.name = parts[0].replace(/\d\. /, '');
-                    item.description = parts[1];
-                    currentContent.items.push(item);
-                }
-            });
-
-            if (currentContent) {
-                currentSection.content.push(currentContent);
-            }
-            if (currentSection) {
-                result.sections.push(currentSection);
-            }
-            result.conclusion = lines[lines.length - 1];
-
-            return result;
-        }
-
-        function displayFormattedResult(parsedReport) {
+        function displayFormattedResult(output) {
             const resultDiv = document.getElementById('result');
-            let html = '';
-
-            parsedReport.sections.forEach(section => {
-                html += `<div class="section">`;
-                html += `<h2 class="section-title">${section.title}</h2>`;
-                
-                section.content.forEach(content => {
-                    html += `<h3 class="subsection-title">${content.title}</h3>`;
-                    if (content.items[0] && typeof content.items[0] === 'string') {
-                        html += '<ul>';
-                        content.items.forEach(item => {
-                            html += `<li>${item}</li>`;
-                        });
-                        html += '</ul>';
-                    } else {
-                        html += '<ol>';
-                        content.items.forEach(item => {
-                            html += `<li><strong>${item.name}</strong> - ${item.description}</li>`;
-                        });
-                        html += '</ol>';
-                    }
-                });
-
-                html += `</div>`;
-            });
-
-            html += `<p><strong>结论：</strong>${parsedReport.conclusion}</p>`;
-
-            resultDiv.innerHTML = html;
+            resultDiv.innerHTML = `<pre>${output}</pre>`;
         }
     </script>
 </body>
